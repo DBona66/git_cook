@@ -1,0 +1,101 @@
+# bitbucket-pipelines.yml
+
+image: atlassian/default-image:latest
+
+pipelines:
+  custom:
+    # OPÇÃO 1: Extrair um componente específico
+    extrair-componente-unico:
+      - variables:
+          - name: COMPONENTE_NOME
+            description: "Nome do componente (deve existir em src/ e test/)"
+          - name: TAG_ATUAL
+            description: "Tag a ser utilizada para extração"
+      - step:
+          name: "Packaging: Single Component"
+          script:
+            - echo "Processando $COMPONENTE_NOME na Tag $TAG_ATUAL"
+
+            
+            # 1. Garantir que o Git conheça as tags
+            - git fetch origin "+refs/tags/*:refs/tags/*"
+            - git fetch --all --tags
+
+            # 2. Posicionar a arvore para a TAG informada
+            - echo "Posicionando o código na Tag $TAG_ATUAL ... "
+            - git checkout tags/$TAG_ATUAL
+
+            # 3. Validar se o check funciona
+            - git log -1 --format="%h %d"
+
+            - export VERSAO=$(echo "$TAG_ATUAL" | sed 's|.*/||')
+
+            - echo "Versão do codigo $VERSAO"
+
+            ###- apt-get update && apt-get install -y zip
+            - apt-get install -y zip
+
+            # executar os testes
+            - ls test/$COMPONENTE_NOME/*.bat | xargs -I {} echo "Executando teste {}"
+
+            # Montar estrutura e zip
+            - mkdir -p ./dist/$COMPONENTE_NOME/src
+            - cp -r config/ ./dist/$COMPONENTE_NOME/
+            - cp -r src/$COMPONENTE_NOME/. ./dist/$COMPONENTE_NOME/src/
+            - cd dist && zip -r ../${COMPONENTE_NOME}_${VERSAO}.zip .
+          artifacts:
+            - "*.zip"
+
+    # OPÇÃO 2: Varre a pasta src/ e gera um zip para cada subdiretório
+    extrair-todos-os-componentes:
+      - variables:
+          - name: TAG_ATUAL
+            description: "Tag a ser utilizada para extração"
+      - step:
+          name: "Packaging: All Components"
+          script:
+            - echo "Processando todos os componentes da Tag $TAG_ATUAL"
+            
+            - export VERSAO=$(echo "$TAG_ATUAL" | sed 's|.*/||')
+            - echo "Versão do codigo $VERSAO"
+
+            # 1. Garantir que o Git conheça as tags
+            - git fetch origin "+refs/tags/*:refs/tags/*"
+            - git fetch --all --tags
+        
+            ##- apt-get update && apt-get install -y zip
+            - apt-get install -y zip
+            - mkdir -p final_artifacts
+
+            # 2. Posicionar a arvore para a TAG informada
+            - git checkout tags/$TAG_ATUAL
+
+            # 3. Validar se o check funciona
+            - git log -1 --format="%h %d"
+            
+            # Loop para cada pasta dentro de src/
+            - |
+              for comp_path in src/*/; do
+                COMP_NAME=$(basename "$comp_path")
+                echo "------------------------------------------"
+                echo "Processando Componente: $COMP_NAME"
+                
+                # 1. Testes
+                if [ -d "test/$COMP_NAME" ]; then
+                  ls test/$COMP_NAME/*.bat | xargs -I {} echo "Rodando teste: {}"
+                fi
+                
+                # 2. Workspace temporário para este componente
+                TMP_DIR="tmp_$COMP_NAME"
+                mkdir -p $TMP_DIR/src
+                
+                # 3. Copia arquivos
+                cp -r config/ $TMP_DIR/
+                cp -r src/$COMP_NAME/. $TMP_DIR/src/
+                
+                # 4. Zipar e mover para pasta final
+                (cd $TMP_DIR && zip -r ../final_artifacts/${COMP_NAME}_${VERSAO}.zip .)
+                rm -rf $TMP_DIR
+              done
+          artifacts:
+            - final_artifacts/*.zip
