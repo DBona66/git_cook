@@ -2,3 +2,4 @@
 echo "Balanco Energetico acronimo 1 - versao 1.1.0"
 cat ../../config/config.txt
 
+Correção do balanço para nova versão.
